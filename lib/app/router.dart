@@ -10,6 +10,11 @@ import '../features/coupons/coupons_screen.dart';
 import '../features/dictionary/dictionary_detail_screen.dart';
 import '../features/dictionary/dictionary_list_screen.dart';
 import '../features/map/map_screen.dart';
+import '../features/owner/group_form_screen.dart';
+import '../features/owner/group_management_screen.dart';
+import '../features/owner/menu_management_screen.dart';
+import '../features/owner/owner_home_screen.dart';
+import '../features/owner/restaurant_form_screen.dart';
 import '../features/shell/home_shell.dart';
 
 /// アプリのルーティング定義。
@@ -64,6 +69,34 @@ final appRouter = GoRouter(
             GoRoute(
               path: '/coupons',
               builder: (context, state) => const CouponsScreen(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/owner',
+              builder: (context, state) => const OwnerHomeScreen(),
+              routes: [
+                GoRoute(
+                  path: 'restaurant',
+                  builder: (context, state) => const RestaurantFormScreen(),
+                ),
+                GoRoute(
+                  path: 'menus',
+                  builder: (context, state) => const MenuManagementScreen(),
+                ),
+                GoRoute(
+                  path: 'groups',
+                  builder: (context, state) => const GroupManagementScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'new',
+                      builder: (context, state) => const GroupFormScreen(),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ],
         ),

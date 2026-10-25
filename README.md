@@ -140,7 +140,8 @@ flutter_map が店をピンとして地図に描画 → タップで辞典ペー
 supabase/
 ├── config.toml             # ローカルスタック設定（analytics は無効化済み）
 ├── migrations/
-│   └── 0001_init.sql       # スキーマ本体（テーブル/関数/トリガー/RLS/Storage）
+│   ├── 0001_init.sql       # スキーマ本体（テーブル/関数/トリガー/RLS/Storage）
+│   └── 0002_owner_rpcs.sql # 店舗オーナー向けRPC（位置情報つき作成/取得）
 └── seed.sql                # デモ用サンプルデータ
 ```
 
@@ -201,12 +202,14 @@ lib/
 │   ├── env.dart              # 接続設定（--dart-define で上書き可）
 │   └── supabase.dart         # Supabase クライアントのショートカット
 ├── app/
-│   └── router.dart           # go_router（下部ナビ: マップ / 辞典 / クーポン）
+│   └── router.dart           # go_router（下部ナビ: マップ/辞典/クーポン/店舗 ＋ 認証ガード）
 └── features/
+    ├── auth/                 # ログイン/サインアップ・ログアウト
     ├── shell/                # 下部ナビのシェル
     ├── map/                  # マップ（flutter_map + nearby_restaurants RPC）
-    ├── dictionary/           # 辞典一覧（restaurants を取得して表示）
-    └── coupons/              # クーポン表示（骨組み）
+    ├── dictionary/           # 辞典一覧・詳細（収集状況/グループ進捗）・カード作成
+    ├── coupons/              # クーポン表示（発行済みクーポン）
+    └── owner/                # 店舗側: 店舗登録・メニュー管理・グループ/クーポン作成
 ```
 
 ### 本番（クラウド）への反映

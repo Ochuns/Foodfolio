@@ -35,6 +35,11 @@ class HomeShell extends StatelessWidget {
             selectedIcon: Icon(Icons.local_offer),
             label: 'クーポン',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.storefront_outlined),
+            selectedIcon: Icon(Icons.storefront),
+            label: '店舗',
+          ),
         ],
       ),
     );
