@@ -213,9 +213,22 @@ lib/
     └── owner/                # 店舗側: 店舗登録・メニュー管理・グループ/クーポン作成
 ```
 
-### 本番（クラウド）への反映
+### 本番デプロイ
 
-ローカルで固めたら、supabase.com でプロジェクトを作成し、以下でスキーマを反映する：
+**🌐 公開URL: https://foodfolio-h51hzn9k8-ochuns-projects.vercel.app**
+
+- **バックエンド**: Supabase クラウド。`supabase/deploy_cloud.sql`（0001+0002 をクラウド用にまとめたもの）を SQL Editor に貼って適用（または下記 CLI）。
+- **フロントエンド**: Vercel（静的ホスティング）。クラウドの URL/キーを埋め込んでビルド → デプロイ：
+  ```bash
+  flutter build web \
+    --dart-define=SUPABASE_URL=https://<ref>.supabase.co \
+    --dart-define=SUPABASE_ANON_KEY=<anon key>
+  cp web/vercel.json build/web/            # SPAフォールバック（深いURL対応）
+  cd build/web && vercel deploy --prod
+  ```
+  初回は Vercel の **Deployment Protection（Vercel Authentication）を Disabled** にして公開する。
+
+CLI でスキーマを反映する場合：
 
 ```bash
 supabase link --project-ref <your-project-ref>

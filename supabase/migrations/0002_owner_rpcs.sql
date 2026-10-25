@@ -16,7 +16,7 @@ create or replace function upsert_my_restaurant(
 ) returns uuid
 language plpgsql
 security invoker
-set search_path = public as $$
+set search_path = public, extensions as $$
 declare
   v_id uuid;
 begin
@@ -59,7 +59,7 @@ returns table (
 language sql
 stable
 security invoker
-set search_path = public as $$
+set search_path = public, extensions as $$
   select r.id, r.name, r.description, r.address,
          ST_Y(r.location::geometry) as lat,
          ST_X(r.location::geometry) as lng

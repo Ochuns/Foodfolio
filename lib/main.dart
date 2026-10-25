@@ -9,7 +9,9 @@ Future<void> main() async {
 
   await Supabase.initialize(
     url: Env.supabaseUrl,
-    publishableKey: Env.supabaseAnonKey,
+    // レガシー形式(JWT)の anon key も受け付けるため anonKey を使用
+    // ignore: deprecated_member_use
+    anonKey: Env.supabaseAnonKey,
   );
 
   runApp(const FoodfolioApp());

@@ -268,7 +268,7 @@ returns table (
   distance_m  double precision
 )
 language sql stable
-set search_path = public as $$
+set search_path = public, extensions as $$
   select r.id, r.name, r.address, r.image_url,
          ST_Y(r.location::geometry) as lat_out,
          ST_X(r.location::geometry) as lng_out,
