@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/supabase.dart';
 import '../auth/account_button.dart';
 
-/// 辞典導入店をマップ上に表示する画面。
-/// 店舗の取得は Supabase の RPC `nearby_restaurants` を使う。
-/// （近傍検索ロジックは PostGIS 側が担当し、ここは結果をピン表示するだけ）
+/// 辞典導入店マップ。
+/// 現在地を取得して周辺の辞典導入店を検索する（近傍検索は PostGIS の RPC が担当）。
+/// 現在地が取れない / 周辺に店が無い場合は会津若松での検索にフォールバックできる。
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
 
@@ -17,30 +18,65 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  /// 会津若松駅周辺（開発中の初期中心）
+  /// 会津若松駅周辺（フォールバックの中心）
   static const _aizu = LatLng(37.4948, 139.9296);
+  static const double _radiusNear = 5000; // 現在地周辺の検索半径(m)
+  static const double _radiusAizu = 100000; // 会津全体を見るための広い半径(m)
 
-  List<Marker> _markers = [];
+  final _mapController = MapController();
+
+  LatLng? _currentLocation;
+  List<Marker> _restaurantMarkers = [];
   bool _loading = true;
   String? _error;
+  bool _noResults = false;
 
   @override
   void initState() {
     super.initState();
-    _loadRestaurants();
+    _init();
   }
 
-  Future<void> _loadRestaurants() async {
+  Future<void> _init() async {
+    final pos = await _getCurrentPosition();
+    final center = pos != null ? LatLng(pos.latitude, pos.longitude) : _aizu;
+    if (pos != null) _currentLocation = center;
+    await _search(center, pos != null ? _radiusNear : _radiusAizu);
+    _safeMove(center, pos != null ? 14 : 12);
+  }
+
+  Future<Position?> _getCurrentPosition() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return null;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
+      return await Geolocator.getCurrentPosition();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _search(LatLng center, double radiusM) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final rows = await supabase.rpc('nearby_restaurants', params: {
-        'lat': _aizu.latitude,
-        'lng': _aizu.longitude,
-        'radius_m': 50000, // 開発用に広めの半径
-      }) as List<dynamic>;
+        'lat': center.latitude,
+        'lng': center.longitude,
+        'radius_m': radiusM.toInt(),
+      }) as List;
 
       if (!mounted) return;
       setState(() {
-        _markers = rows.map((row) {
+        _restaurantMarkers = rows.map((row) {
           final r = row as Map<String, dynamic>;
           final id = r['id'] as String;
           final name = r['name'] as String? ?? '';
@@ -58,6 +94,7 @@ class _MapScreenState extends State<MapScreen> {
             ),
           );
         }).toList();
+        _noResults = rows.isEmpty;
         _loading = false;
       });
     } catch (e) {
@@ -67,6 +104,35 @@ class _MapScreenState extends State<MapScreen> {
         _loading = false;
       });
     }
+  }
+
+  void _safeMove(LatLng center, double zoom) {
+    try {
+      _mapController.move(center, zoom);
+    } catch (_) {
+      // マップ未構築時は無視（initialCenter が使われる）
+    }
+  }
+
+  Future<void> _goToCurrent() async {
+    final pos = await _getCurrentPosition();
+    if (pos == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('現在地を取得できませんでした（位置情報の許可を確認してください）'),
+        ));
+      }
+      return;
+    }
+    final center = LatLng(pos.latitude, pos.longitude);
+    setState(() => _currentLocation = center);
+    await _search(center, _radiusNear);
+    _safeMove(center, 14);
+  }
+
+  Future<void> _goToAizu() async {
+    await _search(_aizu, _radiusAizu);
+    _safeMove(_aizu, 12);
   }
 
   /// ピンをタップしたときの店舗情報シート。辞典詳細への導線を出す。
@@ -104,30 +170,85 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  List<Marker> get _allMarkers {
+    final markers = [..._restaurantMarkers];
+    final loc = _currentLocation;
+    if (loc != null) {
+      markers.add(
+        Marker(
+          point: loc,
+          width: 24,
+          height: 24,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.blue,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+            ),
+          ),
+        ),
+      );
+    }
+    return markers;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('辞典導入店マップ'),
-        actions: const [AccountButton()],
+        actions: [
+          IconButton(
+            tooltip: '会津若松で探す',
+            icon: const Icon(Icons.place_outlined),
+            onPressed: _goToAizu,
+          ),
+          const AccountButton(),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        tooltip: '現在地',
+        onPressed: _goToCurrent,
+        child: const Icon(Icons.my_location),
       ),
       body: Stack(
         children: [
           FlutterMap(
-            options: MapOptions(
-              initialCenter: _aizu,
-              initialZoom: 13,
-            ),
+            mapController: _mapController,
+            options: const MapOptions(initialCenter: _aizu, initialZoom: 12),
             children: [
               TileLayer(
                 // 開発用。本番では利用規約を満たすタイル提供元に差し替える。
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.foodfolio.foodfolio',
               ),
-              MarkerLayer(markers: _markers),
+              MarkerLayer(markers: _allMarkers),
             ],
           ),
           if (_loading) const Center(child: CircularProgressIndicator()),
+          if (!_loading && _noResults)
+            Positioned(
+              left: 12,
+              right: 12,
+              top: 12,
+              child: Material(
+                elevation: 2,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Expanded(child: Text('近くに辞典導入店がありません。')),
+                      TextButton(
+                        onPressed: _goToAizu,
+                        child: const Text('会津若松で探す'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           if (_error != null)
             Positioned(
               left: 12,

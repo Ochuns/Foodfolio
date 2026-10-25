@@ -206,7 +206,7 @@ lib/
 └── features/
     ├── auth/                 # ログイン/サインアップ・ログアウト
     ├── shell/                # 下部ナビのシェル
-    ├── map/                  # マップ（flutter_map + nearby_restaurants RPC）
+    ├── map/                  # マップ（現在地取得 + flutter_map + nearby_restaurants RPC）
     ├── dictionary/           # 辞典一覧・詳細（収集状況/グループ進捗）
     ├── cards/                # チェキ風カード（写真＋白フレーム＋マッキー風コメント）
     ├── coupons/              # クーポン表示（発行済みクーポン）

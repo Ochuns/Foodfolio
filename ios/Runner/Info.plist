@@ -4,6 +4,10 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>近くの辞典導入店を地図に表示するために現在地を使用します。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>カードの写真を選ぶために写真ライブラリにアクセスします。</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
