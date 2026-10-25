@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/supabase.dart';
@@ -41,6 +42,9 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {
         _markers = rows.map((row) {
           final r = row as Map<String, dynamic>;
+          final id = r['id'] as String;
+          final name = r['name'] as String? ?? '';
+          final address = r['address'] as String? ?? '';
           return Marker(
             point: LatLng(
               (r['lat_out'] as num).toDouble(),
@@ -48,7 +52,10 @@ class _MapScreenState extends State<MapScreen> {
             ),
             width: 44,
             height: 44,
-            child: const Icon(Icons.restaurant, color: Colors.deepOrange, size: 36),
+            child: GestureDetector(
+              onTap: () => _showRestaurantSheet(id, name, address),
+              child: const Icon(Icons.restaurant, color: Colors.deepOrange, size: 36),
+            ),
           );
         }).toList();
         _loading = false;
@@ -60,6 +67,41 @@ class _MapScreenState extends State<MapScreen> {
         _loading = false;
       });
     }
+  }
+
+  /// ピンをタップしたときの店舗情報シート。辞典詳細への導線を出す。
+  void _showRestaurantSheet(String id, String name, String address) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name, style: Theme.of(sheetContext).textTheme.titleLarge),
+              if (address.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(address),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    context.push('/restaurant/$id');
+                  },
+                  icon: const Icon(Icons.menu_book),
+                  label: const Text('辞典を見る'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override

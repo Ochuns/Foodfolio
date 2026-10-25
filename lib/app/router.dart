@@ -36,6 +36,13 @@ final appRouter = GoRouter(
       path: '/login',
       builder: (context, state) => const AuthScreen(),
     ),
+    // 辞典詳細はマップ・一覧どちらからも開く共通ルート（全画面表示）
+    GoRoute(
+      path: '/restaurant/:id',
+      builder: (context, state) => DictionaryDetailScreen(
+        restaurantId: state.pathParameters['id']!,
+      ),
+    ),
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) =>
           HomeShell(navigationShell: navigationShell),
@@ -53,14 +60,6 @@ final appRouter = GoRouter(
             GoRoute(
               path: '/dictionaries',
               builder: (context, state) => const DictionaryListScreen(),
-              routes: [
-                GoRoute(
-                  path: ':id',
-                  builder: (context, state) => DictionaryDetailScreen(
-                    restaurantId: state.pathParameters['id']!,
-                  ),
-                ),
-              ],
             ),
           ],
         ),

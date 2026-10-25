@@ -67,7 +67,7 @@ class _DictionaryListScreenState extends State<DictionaryListScreen> {
                   title: Text(r['name'] as String? ?? ''),
                   subtitle: Text(r['address'] as String? ?? ''),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/dictionaries/${r['id']}'),
+                  onTap: () => context.push('/restaurant/${r['id']}'),
                 );
               },
             );
