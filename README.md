@@ -215,18 +215,19 @@ lib/
 
 ### 本番デプロイ
 
-**🌐 公開URL: https://foodfolio-h51hzn9k8-ochuns-projects.vercel.app**
+**🌐 公開URL: https://foodfolio.sekura-shunei.workers.dev**
 
 - **バックエンド**: Supabase クラウド。`supabase/deploy_cloud.sql`（0001+0002 をクラウド用にまとめたもの）を SQL Editor に貼って適用（または下記 CLI）。
-- **フロントエンド**: Vercel（静的ホスティング）。クラウドの URL/キーを埋め込んでビルド → デプロイ：
+- **フロントエンド**: Cloudflare Workers（静的アセット・**帯域無料/実質無制限**）。クラウドの URL/キーを埋め込んでビルド → デプロイ：
   ```bash
   flutter build web \
     --dart-define=SUPABASE_URL=https://<ref>.supabase.co \
     --dart-define=SUPABASE_ANON_KEY=<anon key>
-  cp web/vercel.json build/web/            # SPAフォールバック（深いURL対応）
-  cd build/web && vercel deploy --prod
+  npx wrangler login        # 初回のみ（ブラウザ認証）
+  npx wrangler deploy       # wrangler.jsonc の設定で build/web をデプロイ
   ```
-  初回は Vercel の **Deployment Protection（Vercel Authentication）を Disabled** にして公開する。
+  SPA（深いURL）対応は `wrangler.jsonc` の `not_found_handling: "single-page-application"` が担当。
+  （Vercel に出す場合は `web/vercel.json` を使い `cd build/web && vercel deploy --prod`）
 
 CLI でスキーマを反映する場合：
 
