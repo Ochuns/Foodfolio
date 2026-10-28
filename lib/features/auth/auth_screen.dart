@@ -21,6 +21,8 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _isLogin = true;
   bool _loading = false;
   String? _error;
+  // 新規登録時のアカウント種別: 'user' = 一般ユーザー / 'owner' = 飲食店
+  String _role = 'user';
 
   @override
   void dispose() {
@@ -46,8 +48,12 @@ class _AuthScreenState extends State<AuthScreen> {
         await supabase.auth.signUp(
           email: _email.text.trim(),
           password: _password.text,
-          // raw_user_meta_data に入り、handle_new_user トリガーが profiles.display_name に反映
-          data: {'display_name': _displayName.text.trim()},
+          // raw_user_meta_data に入り、handle_new_user トリガーが
+          // profiles.display_name / role に反映される
+          data: {
+            'display_name': _displayName.text.trim(),
+            'role': _role,
+          },
         );
       }
       // 成功後の画面遷移は router の redirect（認証状態監視）が担当する
@@ -87,6 +93,40 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   const SizedBox(height: 24),
                   if (!_isLogin) ...[
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'アカウント種別',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: 'user',
+                          label: Text('一般ユーザー'),
+                          icon: Icon(Icons.person_outline),
+                        ),
+                        ButtonSegment(
+                          value: 'owner',
+                          label: Text('飲食店'),
+                          icon: Icon(Icons.storefront_outlined),
+                        ),
+                      ],
+                      selected: {_role},
+                      onSelectionChanged: _loading
+                          ? null
+                          : (s) => setState(() => _role = s.first),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _role == 'owner'
+                          ? '店舗・メニュー（辞典）・クーポンを管理します。'
+                          : 'マップで店を探し、辞典を集めてクーポンを獲得します。',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 16),
                     TextFormField(
                       controller: _displayName,
                       decoration: const InputDecoration(

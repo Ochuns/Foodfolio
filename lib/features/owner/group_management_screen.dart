@@ -99,6 +99,12 @@ class _GroupManagementScreenState extends State<GroupManagementScreen> {
             'メニュー ${items.length}件'
             '${coupon != null ? ' ・ クーポン: ${coupon['title']}' : ' ・ クーポン未設定'}',
           ),
+          trailing: const Icon(Icons.chevron_right),
+          // タップで編集画面へ（グループ＋クーポンの編集・削除）
+          onTap: () async {
+            await context.push('/owner/groups/${g['id']}/edit');
+            _reload();
+          },
         );
       },
     );
