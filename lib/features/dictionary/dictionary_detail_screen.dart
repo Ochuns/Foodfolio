@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
+import '../../core/app_config.dart';
 import '../../core/supabase.dart';
 import '../auth/account_button.dart';
 import '../cards/card_editor_screen.dart';
@@ -39,11 +41,12 @@ class _DictionaryDetailScreenState extends State<DictionaryDetailScreen> {
             .select('id, name, price, category')
             .eq('restaurant_id', rid)
             .order('sort_order'),
-        // RLS により自分のカードだけが返る
+        // RLS により自分のカードだけが返る（新しい順）
         supabase
             .from('cards')
-            .select('menu_item_id, photo_url, memo, rating')
-            .eq('restaurant_id', rid),
+            .select('id, menu_item_id, photo_url, memo, rating, created_at')
+            .eq('restaurant_id', rid)
+            .order('created_at', ascending: false),
         supabase
             .from('groups')
             .select('id, name, description, group_items(menu_item_id)')
@@ -55,9 +58,11 @@ class _DictionaryDetailScreenState extends State<DictionaryDetailScreen> {
       final cards = (results[2] as List).cast<Map<String, dynamic>>();
       final groups = (results[3] as List).cast<Map<String, dynamic>>();
 
-      final cardByMenu = <String, Map<String, dynamic>>{
-        for (final c in cards) c['menu_item_id'] as String: c,
-      };
+      // メニューごとに複数枚のカードをまとめる（新しい順のまま）
+      final cardsByMenu = <String, List<Map<String, dynamic>>>{};
+      for (final c in cards) {
+        (cardsByMenu[c['menu_item_id'] as String] ??= []).add(c);
+      }
 
       if (!mounted) return;
       setState(() {
@@ -65,7 +70,7 @@ class _DictionaryDetailScreenState extends State<DictionaryDetailScreen> {
           name: restaurant['name'] as String? ?? '',
           address: restaurant['address'] as String? ?? '',
           menus: menus,
-          cards: cardByMenu,
+          cards: cardsByMenu,
           groups: groups,
         );
         _loading = false;
@@ -93,19 +98,157 @@ class _DictionaryDetailScreenState extends State<DictionaryDetailScreen> {
     return result;
   }
 
-  Future<void> _openEditor(Map<String, dynamic> menu) async {
+  /// 来店ジオフェンス判定。店舗の近く（約 [AppConfig.visitRadiusM] m）にいれば true。
+  /// テスト中（AppConfig.enforceVisitLocation=false）は常に true。
+  Future<bool> _ensureAtRestaurant() async {
+    if (!AppConfig.enforceVisitLocation) return true;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(
+      content: Text('現在地を確認しています…'),
+      duration: Duration(seconds: 2),
+    ));
+
+    final pos = await _getCurrentPosition();
+    if (!mounted) return false;
+    if (pos == null) {
+      await _showInfoDialog(
+        '位置情報が必要です',
+        'チェキの作成には位置情報の許可が必要です。\nブラウザ／端末の位置情報設定を確認してください。',
+      );
+      return false;
+    }
+
+    try {
+      final within = await supabase.rpc('is_within_restaurant', params: {
+        'r_id': widget.restaurantId,
+        'lat': pos.latitude,
+        'lng': pos.longitude,
+        'radius_m': AppConfig.visitRadiusM,
+      }) as bool;
+      if (!mounted) return false;
+      if (!within) {
+        await _showInfoDialog(
+          '店舗の近くで作成してください',
+          'このチェキは店舗の近く（約${AppConfig.visitRadiusM}m以内）でのみ作成できます。\n実際に来店してお試しください。',
+        );
+        return false;
+      }
+      return true;
+    } catch (e) {
+      if (mounted) {
+        await _showInfoDialog('確認に失敗しました', '位置の確認に失敗しました。\n$e');
+      }
+      return false;
+    }
+  }
+
+  Future<Position?> _getCurrentPosition() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return null;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
+      return await Geolocator.getCurrentPosition();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _showInfoDialog(String title, String body) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.location_on_outlined),
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// メニューをタップ/「撮る」操作の入口。
+  /// 「同じ店舗では1日1枚」ルールに従い、作成 / 再撮影 / ブロックを振り分ける。
+  Future<void> _capture(Map<String, dynamic> menu) async {
+    final data = _data;
+    if (data == null) return;
+    final menuId = menu['id'] as String;
+    final today = data.todayCard;
+
+    if (today == null) {
+      // 本日この店舗で未作成 → 新規作成
+      await _openEditor(menu);
+      return;
+    }
+    if (today['menu_item_id'] == menuId) {
+      // 本日分がこのメニュー → 再撮影（上書き）
+      await _openEditor(menu, reshoot: today);
+      return;
+    }
+    // 本日分が別メニュー → 1日1枚ルールでブロック（そのメニューの再撮影は案内）
+    final otherId = today['menu_item_id'] as String;
+    final otherName = data.menuName(otherId);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.info_outline),
+        title: const Text('本日は作成済みです'),
+        content: Text(
+          '同じ店舗では1日に1枚までです。\n'
+          '本日はこの店舗で「$otherName」のチェキを作成済みです。\n'
+          '本日分は再撮影のみ可能です。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('閉じる'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('「$otherName」を再撮影'),
+          ),
+        ],
+      ),
+    );
+    if (go != true) return;
+    final otherMenu = data.menuById(otherId);
+    if (otherMenu != null) await _openEditor(otherMenu, reshoot: today);
+  }
+
+  Future<void> _openEditor(
+    Map<String, dynamic> menu, {
+    Map<String, dynamic>? reshoot,
+  }) async {
+    // 来店ジオフェンス: 店舗の近くにいるときだけ作成/再撮影できる
+    if (!await _ensureAtRestaurant()) return;
+    if (!mounted) return;
+
     final data = _data;
     final before = data != null ? _completedGroupIds(data) : <String>{};
 
-    final created = await Navigator.of(context).push<bool>(
+    final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => CardEditorScreen(
           menuId: menu['id'] as String,
           menuName: menu['name'] as String? ?? '',
+          cardId: reshoot?['id'] as String?,
+          initialComment: reshoot?['memo'] as String?,
+          initialRating: reshoot?['rating'] as int?,
+          initialPhotoUrl: reshoot?['photo_url'] as String?,
         ),
       ),
     );
-    if (created != true) return;
+    if (saved != true) return;
 
     await _reload();
     if (!mounted) return;
@@ -120,36 +263,91 @@ class _DictionaryDetailScreenState extends State<DictionaryDetailScreen> {
           .join('・');
       await _showCouponDialog(names);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('「${menu['name']}」のカードを作成しました')),
-      );
+      final msg = reshoot != null
+          ? '「${menu['name']}」を再撮影しました'
+          : '「${menu['name']}」のカードを作成しました';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
-  void _showCheki(Map<String, dynamic> menu, Map<String, dynamic> card) {
-    showDialog<void>(
+  /// メニューの所持チェキ一覧（横スクロール）＋「もう1枚撮る」導線
+  void _showCardsSheet(
+      Map<String, dynamic> menu, List<Map<String, dynamic>> cards) {
+    showModalBottomSheet<void>(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ChekiCard(
-              comment: card['memo'] as String? ?? '',
-              photoUrl: card['photo_url'] as String?,
-              rating: card['rating'] as int?,
-              width: 300,
-              rotation: -0.02,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              menu['name'] as String? ?? '',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ],
+      isScrollControlled: true,
+      builder: (sheetCtx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                menu['name'] as String? ?? '',
+                textAlign: TextAlign.center,
+                style: Theme.of(sheetCtx).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${cards.length}枚のチェキ',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 340,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: cards.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 16),
+                  itemBuilder: (_, i) {
+                    final card = cards[i];
+                    return Center(
+                      child: ChekiCard(
+                        comment: card['memo'] as String? ?? '',
+                        photoUrl: card['photo_url'] as String?,
+                        rating: card['rating'] as int?,
+                        date: _jstDisplayDate(card['created_at']),
+                        width: 220,
+                        rotation: i.isEven ? -0.02 : 0.02,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildSheetButton(sheetCtx, menu),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  /// シート下部のボタン。本日の作成状況に応じてラベル/挙動を変える。
+  Widget _buildSheetButton(
+      BuildContext sheetCtx, Map<String, dynamic> menu) {
+    final data = _data!;
+    final today = data.todayCard;
+    final thisMenu = today != null && today['menu_item_id'] == menu['id'];
+
+    final String label;
+    if (thisMenu) {
+      label = '本日分を再撮影する';
+    } else if (today != null) {
+      label = '本日は別メニューで作成済み';
+    } else {
+      label = 'もう1枚撮る（本日分）';
+    }
+
+    return FilledButton.icon(
+      onPressed: () {
+        Navigator.pop(sheetCtx);
+        _capture(menu);
+      },
+      icon: Icon(thisMenu ? Icons.refresh : Icons.add_a_photo_outlined),
+      label: Text(label),
     );
   }
 
@@ -215,17 +413,29 @@ class _DictionaryDetailScreenState extends State<DictionaryDetailScreen> {
           const _SectionTitle('メニュー（タップでチェキ作成）'),
           ...data.menus.map((m) {
             final id = m['id'] as String;
-            final card = data.cards[id];
-            final done = card != null;
+            final cards = data.cards[id] ?? const [];
+            final done = cards.isNotEmpty;
             final price = m['price'] as int?;
+            final subParts = <String>[
+              if (price != null) '¥$price',
+              if (cards.length > 1) '${cards.length}枚所持',
+            ];
             return ListTile(
-              leading: _leading(card),
+              leading: _leading(cards),
               title: Text(m['name'] as String? ?? ''),
-              subtitle: price != null ? Text('¥$price') : null,
+              subtitle: subParts.isEmpty ? null : Text(subParts.join('　')),
               trailing: done
-                  ? const Text('収集済', style: TextStyle(color: Colors.green))
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('収集済',
+                            style: TextStyle(color: Colors.green)),
+                        const Icon(Icons.chevron_right, color: Colors.grey),
+                      ],
+                    )
                   : const Icon(Icons.add_a_photo_outlined),
-              onTap: done ? () => _showCheki(m, card) : () => _openEditor(m),
+              onTap:
+                  done ? () => _showCardsSheet(m, cards) : () => _capture(m),
             );
           }),
         ],
@@ -233,11 +443,12 @@ class _DictionaryDetailScreenState extends State<DictionaryDetailScreen> {
     );
   }
 
-  Widget _leading(Map<String, dynamic>? card) {
-    if (card == null) {
+  Widget _leading(List<Map<String, dynamic>> cards) {
+    if (cards.isEmpty) {
       return const Icon(Icons.radio_button_unchecked, color: Colors.grey);
     }
-    final url = card['photo_url'] as String?;
+    // 最新（先頭）のカードのサムネイルを代表表示
+    final url = cards.first['photo_url'] as String?;
     if (url != null && url.isNotEmpty) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(4),
@@ -325,9 +536,53 @@ class _DetailData {
   final String address;
   final List<Map<String, dynamic>> menus;
 
-  /// menu_item_id -> カード情報(photo_url/memo/rating)
-  final Map<String, Map<String, dynamic>> cards;
+  /// menu_item_id -> そのメニューのカード一覧（新しい順）
+  final Map<String, List<Map<String, dynamic>>> cards;
   final List<Map<String, dynamic>> groups;
 
+  /// 1枚以上カードがある（＝収集済み）メニューIDの集合
   Set<String> get collectedIds => cards.keys.toSet();
+
+  /// 本日(JST)この店舗で作成済みのカード（なければ null）。
+  /// 一意制約により店舗内では最大1枚。
+  Map<String, dynamic>? get todayCard {
+    for (final list in cards.values) {
+      for (final c in list) {
+        final d = _parseCardDate(c['created_at']);
+        if (d != null && _isTodayJst(d)) return c;
+      }
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? menuById(String id) {
+    for (final m in menus) {
+      if (m['id'] == id) return m;
+    }
+    return null;
+  }
+
+  String menuName(String id) => menuById(id)?['name'] as String? ?? 'メニュー';
+}
+
+// ---- 日付ヘルパー（JST基準で「本日」を判定／表示） ----
+
+DateTime? _parseCardDate(dynamic v) {
+  if (v is String && v.isNotEmpty) return DateTime.tryParse(v);
+  return null;
+}
+
+/// 任意の日時を JST の暦日(0時)に丸める。
+DateTime _jstDay(DateTime t) {
+  final jst = t.toUtc().add(const Duration(hours: 9));
+  return DateTime(jst.year, jst.month, jst.day);
+}
+
+bool _isTodayJst(DateTime t) => _jstDay(t) == _jstDay(DateTime.now());
+
+/// チェキ表示用: created_at を JST の壁時計時刻に変換（年月日が JST になる）。
+DateTime? _jstDisplayDate(dynamic v) {
+  final t = _parseCardDate(v);
+  if (t == null) return null;
+  return t.toUtc().add(const Duration(hours: 9));
 }

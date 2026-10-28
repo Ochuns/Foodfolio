@@ -13,6 +13,7 @@ class ChekiCard extends StatelessWidget {
     this.photoUrl,
     this.photoBytes,
     this.rating,
+    this.date,
     this.rotation = -0.03,
     this.width = 260,
   });
@@ -21,8 +22,18 @@ class ChekiCard extends StatelessWidget {
   final String? photoUrl;
   final Uint8List? photoBytes;
   final int? rating;
+
+  /// 撮影日（白フレーム右下にインスタックス風の日付スタンプとして表示）
+  final DateTime? date;
   final double rotation;
   final double width;
+
+  String get _dateText {
+    final d = date;
+    if (d == null) return '';
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${d.year}.${two(d.month)}.${two(d.day)}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,29 +60,41 @@ class ChekiCard extends StatelessWidget {
                   child: _buildPhoto(),
                 ),
               ),
-              // 下の白フレーム（コメント欄）
+              // 下の白フレーム（コメント欄＋日付スタンプ）
               SizedBox(
-                height: 92,
+                height: 104,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       if (rating != null && rating! > 0) _stars(),
-                      const SizedBox(height: 2),
-                      Flexible(
-                        child: Text(
-                          comment,
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.yuseiMagic(
-                            fontSize: 18,
-                            height: 1.15,
-                            color: const Color(0xFF222222),
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            comment,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.yuseiMagic(
+                              fontSize: 18,
+                              height: 1.15,
+                              color: const Color(0xFF222222),
+                            ),
                           ),
                         ),
                       ),
+                      // 右下に撮影日（インスタックス風の日付スタンプ）
+                      if (date != null)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            _dateText,
+                            style: GoogleFonts.yuseiMagic(
+                              fontSize: 13,
+                              color: const Color(0xFFE8A13A),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),

@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/app_config.dart';
 import '../../core/supabase.dart';
 import 'cheki_card.dart';
 
@@ -16,10 +17,20 @@ class CardEditorScreen extends StatefulWidget {
     super.key,
     required this.menuId,
     required this.menuName,
+    this.cardId,
+    this.initialComment,
+    this.initialRating,
+    this.initialPhotoUrl,
   });
 
   final String menuId;
   final String menuName;
+
+  /// 再撮影対象のカードID。null なら新規作成。
+  final String? cardId;
+  final String? initialComment;
+  final int? initialRating;
+  final String? initialPhotoUrl;
 
   @override
   State<CardEditorScreen> createState() => _CardEditorScreenState();
@@ -33,6 +44,22 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
   bool _saving = false;
   String? _error;
 
+  /// 再撮影（既存カードの更新）かどうか
+  bool get _isReshoot => widget.cardId != null;
+
+  String get _photoButtonLabel {
+    if (_photoBytes != null) return '写真を変更';
+    if (_isReshoot) return '写真を撮り直す';
+    return AppConfig.cameraOnly ? '写真を撮る' : '写真を追加';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _comment.text = widget.initialComment ?? '';
+    _rating = widget.initialRating ?? 0;
+  }
+
   @override
   void dispose() {
     _comment.dispose();
@@ -40,10 +67,16 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
   }
 
   Future<void> _pickPhoto() async {
+    // 本番(cameraOnly=true)はその場で撮影。テスト中はカメラ/添付を選べる。
+    final ImageSource? source =
+        AppConfig.cameraOnly ? ImageSource.camera : await _chooseSource();
+    if (source == null) return;
+
     final file = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
+      source: source,
       maxWidth: 1200,
       imageQuality: 85,
+      preferredCameraDevice: CameraDevice.rear,
     );
     if (file == null) return;
     final bytes = await file.readAsBytes();
@@ -54,16 +87,43 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
     });
   }
 
+  /// テスト時のみ: カメラ撮影かギャラリー添付かを選ばせる。
+  Future<ImageSource?> _chooseSource() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('カメラで撮る'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('ギャラリーから選ぶ（テスト用）'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _save() async {
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      String? photoUrl;
+      // 再撮影で写真を変えない場合は既存の写真URLを維持
+      String? photoUrl = widget.initialPhotoUrl;
       if (_photoBytes != null) {
         final uid = supabase.auth.currentUser!.id;
-        final path = '$uid/${widget.menuId}.jpg';
+        // 同じメニューで複数枚持てるよう、カードごとに一意なパスにする
+        final stamp = DateTime.now().microsecondsSinceEpoch;
+        final path = '$uid/${widget.menuId}-$stamp.jpg';
         await supabase.storage.from('card-photos').uploadBinary(
               path,
               _photoBytes!,
@@ -76,15 +136,32 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
       }
 
       final memo = _comment.text.trim();
-      await supabase.from('cards').insert({
-        'menu_item_id': widget.menuId,
-        'memo': memo.isEmpty ? null : memo,
-        'rating': _rating == 0 ? null : _rating,
-        'photo_url': photoUrl,
-      });
+      if (_isReshoot) {
+        // 再撮影 = 当日分カードの更新（created_at は変えないので制約に抵触しない）
+        await supabase.from('cards').update({
+          'memo': memo.isEmpty ? null : memo,
+          'rating': _rating == 0 ? null : _rating,
+          'photo_url': photoUrl,
+        }).eq('id', widget.cardId!);
+      } else {
+        await supabase.from('cards').insert({
+          'menu_item_id': widget.menuId,
+          'memo': memo.isEmpty ? null : memo,
+          'rating': _rating == 0 ? null : _rating,
+          'photo_url': photoUrl,
+        });
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
+    } on PostgrestException catch (e) {
+      // 一意制約違反（同じ店舗で本日2枚目）はわかりやすい文言に
+      setState(() {
+        _error = e.code == '23505'
+            ? '同じ店舗では1日に1枚までです。本日作成したカードは「再撮影」で更新できます。'
+            : e.message;
+        _saving = false;
+      });
     } catch (e) {
       setState(() {
         _error = e.toString();
@@ -96,7 +173,9 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('カード作成: ${widget.menuName}')),
+      appBar: AppBar(
+          title: Text(
+              '${_isReshoot ? '再撮影' : 'カード作成'}: ${widget.menuName}')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -107,7 +186,10 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
               child: ChekiCard(
                 comment: _comment.text,
                 photoBytes: _photoBytes,
+                // 再撮影で未選択のうちは既存写真を表示
+                photoUrl: _photoBytes == null ? widget.initialPhotoUrl : null,
                 rating: _rating,
+                date: DateTime.now(),
                 width: 260,
               ),
             ),
@@ -115,7 +197,7 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
             OutlinedButton.icon(
               onPressed: _pickPhoto,
               icon: const Icon(Icons.add_a_photo_outlined),
-              label: Text(_photoBytes == null ? '写真を選ぶ' : '写真を変更'),
+              label: Text(_photoButtonLabel),
             ),
             const SizedBox(height: 20),
             Text('コメント（マッキー風）',
@@ -159,7 +241,7 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
                       height: 20,
                       width: 20,
                       child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('カードを作成する'),
+                  : Text(_isReshoot ? '再撮影を保存' : 'カードを作成する'),
             ),
           ],
         ),

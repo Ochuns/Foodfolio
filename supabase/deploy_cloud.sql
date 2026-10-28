@@ -178,11 +178,14 @@ create table cards (
   memo          text,
   rating        smallint check (rating between 1 and 5),
   photo_url     text,
-  created_at    timestamptz not null default now(),
-  unique (user_id, menu_item_id)
+  created_at    timestamptz not null default now()
+  -- 同じメニューでも複数枚（再撮影・コレクション）を持てるよう一意制約は付けない
 );
 create index cards_user_idx      on cards (user_id);
 create index cards_menu_item_idx on cards (menu_item_id);
+-- 同じ店舗では1日(JST)1枚まで（再撮影=UPDATEは抵触しない）
+create unique index cards_one_per_day_per_restaurant
+  on cards (user_id, restaurant_id, ((created_at at time zone interval '9:00')::date));
 
 -- restaurant_id を menu_item から自動補完 (整合性担保)
 create or replace function set_card_restaurant()
@@ -290,6 +293,31 @@ set search_path = public, extensions as $$
   where r.location is not null
     and ST_DWithin(r.location, ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography, radius_m)
   order by distance_m;
+$$;
+
+-- 来店ジオフェンス判定: 指定座標が店舗から radius_m 以内か（チェキ作成の来店必須に使用）
+create or replace function is_within_restaurant(
+  r_id     uuid,
+  lat      double precision,
+  lng      double precision,
+  radius_m integer default 30
+)
+returns boolean
+language sql stable
+set search_path = public, extensions as $$
+  select coalesce(
+    bool_or(
+      r.location is null
+      or ST_DWithin(
+           r.location,
+           ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography,
+           radius_m
+         )
+    ),
+    false
+  )
+  from restaurants r
+  where r.id = r_id;
 $$;
 
 -- =============================================================
