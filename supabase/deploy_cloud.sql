@@ -178,7 +178,8 @@ create table cards (
   memo          text,
   rating        smallint check (rating between 1 and 5),
   photo_url     text,
-  created_at    timestamptz not null default now()
+  created_at    timestamptz not null default now(),
+  used_at       timestamptz  -- クーポン獲得に使うと刻印される（使用済み・再利用不可）
   -- 同じメニューでも複数枚（再撮影・コレクション）を持てるよう一意制約は付けない
 );
 create index cards_user_idx      on cards (user_id);
@@ -214,56 +215,115 @@ create table user_coupons (
   code       text not null,          -- QR / コード表示用トークン
   issued_at  timestamptz not null default now(),
   used_at    timestamptz,
-  expires_at timestamptz,
-  unique (user_id, coupon_id)        -- 同一クーポンは1回のみ発行
+  expires_at timestamptz
+  -- クーポンは繰り返し獲得できるよう一意制約は付けない
 );
 create index user_coupons_user_idx on user_coupons (user_id);
 
 -- =============================================================
--- 9. クーポン自動発行ロジック
---    カード作成後、そのメニューを含む各グループについて
---    「全メニューが揃ったか」を判定し、揃えばクーポンを発行する
+-- 9. グループ手動セット ＋ クーポン獲得（繰り返し可 / 使用済み刻印）
+--    ユーザーが各メニュー枠に自分のチェキをセットし、揃えたら獲得する。
+--    獲得するとグループ枠はリセットされ、使ったチェキは used_at で刻印される。
 -- =============================================================
-create or replace function issue_coupons_on_card()
-returns trigger language plpgsql security definer set search_path = public as $$
-declare
-  g record;
+create table group_selections (
+  user_id      uuid not null default auth.uid() references auth.users on delete cascade,
+  group_id     uuid not null references groups on delete cascade,
+  menu_item_id uuid not null references menu_items on delete cascade,
+  card_id      uuid not null references cards on delete cascade,
+  created_at   timestamptz not null default now(),
+  primary key (user_id, group_id, menu_item_id)
+);
+create index group_selections_card_idx on group_selections(card_id);
+
+alter table group_selections enable row level security;
+create policy group_selections_select on group_selections
+  for select using (auth.uid() = user_id);
+create policy group_selections_write on group_selections
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- メニュー枠にチェキをセット（自分の・該当メニュー・未使用のみ）
+create or replace function set_group_selection(
+  p_group_id uuid, p_menu_item_id uuid, p_card_id uuid
+)
+returns void language plpgsql security invoker set search_path = public as $$
 begin
-  for g in
-    select group_id from group_items where menu_item_id = new.menu_item_id
-  loop
-    -- グループ内に「未カード化のメニュー」が1つも無ければ達成
-    if not exists (
-      select 1
-      from group_items gi
-      where gi.group_id = g.group_id
-        and not exists (
-          select 1 from cards c
-          where c.user_id = new.user_id
-            and c.menu_item_id = gi.menu_item_id
-        )
-    ) then
-      insert into user_coupons (user_id, coupon_id, group_id, code, expires_at)
-      select new.user_id,
-             cp.id,
-             g.group_id,
-             -- コア関数 gen_random_uuid() でトークン生成（pgcrypto 非依存で堅牢）
-             replace(gen_random_uuid()::text, '-', ''),
-             case when cp.valid_days is not null
-                  then now() + (cp.valid_days || ' days')::interval
-                  else null end
-      from coupons cp
-      where cp.group_id = g.group_id and cp.is_active = true
-      on conflict (user_id, coupon_id) do nothing;  -- 既発行はスキップ
-    end if;
-  end loop;
-  return new;
-end;
+  if not exists (
+    select 1 from cards
+    where id = p_card_id and user_id = auth.uid()
+      and menu_item_id = p_menu_item_id and used_at is null
+  ) then
+    raise exception '対象のチェキが無効か、使用済みです';
+  end if;
+  if not exists (
+    select 1 from group_items
+    where group_id = p_group_id and menu_item_id = p_menu_item_id
+  ) then
+    raise exception 'このメニューはグループに含まれていません';
+  end if;
+  insert into group_selections (user_id, group_id, menu_item_id, card_id)
+  values (auth.uid(), p_group_id, p_menu_item_id, p_card_id)
+  on conflict (user_id, group_id, menu_item_id)
+  do update set card_id = excluded.card_id, created_at = now();
+end $$;
+
+-- メニュー枠のセット解除
+create or replace function clear_group_selection(
+  p_group_id uuid, p_menu_item_id uuid
+)
+returns void language sql security invoker set search_path = public as $$
+  delete from group_selections
+  where user_id = auth.uid()
+    and group_id = p_group_id
+    and menu_item_id = p_menu_item_id;
 $$;
 
-create trigger cards_issue_coupons
-  after insert on cards
-  for each row execute function issue_coupons_on_card();
+-- クーポン獲得（全枠充足 → 発行 → 使用チェキ刻印 → 枠リセット）
+create or replace function claim_group_coupon(p_group_id uuid)
+returns table (out_coupon_id uuid, out_code text)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_coupon   coupons;
+  v_total    int;
+  v_filled   int;
+  v_code     text;
+  v_expires  timestamptz;
+begin
+  select * into v_coupon from coupons
+   where group_id = p_group_id and is_active = true limit 1;
+  if not found then raise exception 'このグループに有効なクーポンがありません'; end if;
+
+  select count(*) into v_total from group_items where group_id = p_group_id;
+  if v_total = 0 then raise exception 'グループにメニューがありません'; end if;
+
+  select count(*) into v_filled
+  from group_items gi
+  join group_selections gs
+    on gs.group_id = gi.group_id and gs.menu_item_id = gi.menu_item_id
+   and gs.user_id = auth.uid()
+  join cards c on c.id = gs.card_id and c.used_at is null
+  where gi.group_id = p_group_id;
+  if v_filled < v_total then
+    raise exception 'まだ全てのメニューにチェキがセットされていません';
+  end if;
+
+  v_code := replace(gen_random_uuid()::text, '-', '');
+  v_expires := case when v_coupon.valid_days is not null
+                    then now() + (v_coupon.valid_days || ' days')::interval
+                    else null end;
+  insert into user_coupons (user_id, coupon_id, group_id, code, expires_at)
+  values (auth.uid(), v_coupon.id, p_group_id, v_code, v_expires);
+
+  update cards set used_at = now()
+   where id in (select card_id from group_selections
+                where user_id = auth.uid() and group_id = p_group_id);
+
+  delete from group_selections
+   where user_id = auth.uid() and group_id = p_group_id;
+
+  out_coupon_id := v_coupon.id;
+  out_code := v_code;
+  return next;
+end $$;
 
 -- =============================================================
 -- 10. 近傍の飲食店検索 (マップ用 RPC)

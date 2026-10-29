@@ -4,7 +4,7 @@ import '../../core/supabase.dart';
 import '../auth/account_button.dart';
 
 /// クーポン表示画面。
-/// グループ達成で自動発行された user_coupons を表示する。
+/// 辞典のグループでチェキを揃えて獲得した user_coupons を表示する。
 /// （会津コイン連携はハッカソンではコード表示まで。支払いは店舗端末で）
 class CouponsScreen extends StatefulWidget {
   const CouponsScreen({super.key});
@@ -54,7 +54,7 @@ class _CouponsScreenState extends State<CouponsScreen> {
             final items = snapshot.data ?? [];
             if (items.isEmpty) {
               return const _MessageView(
-                message: 'まだクーポンがありません。\nグループのカードを集めると発行されます。',
+                message: 'まだクーポンがありません。\n辞典のグループでチェキを揃えて獲得できます。',
               );
             }
             return ListView.builder(

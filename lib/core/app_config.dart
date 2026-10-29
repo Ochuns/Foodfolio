@@ -17,6 +17,12 @@ class AppConfig {
   /// 来店とみなす半径（メートル）。
   static const int visitRadiusM = 30;
 
+  /// 「同じ店舗では1日1枚」制限を強制するか。
+  /// - 本番: true（1日1枚。当日分は再撮影）
+  /// - テスト: false（検証しやすいよう1日に何枚でも作成可）
+  /// ※ ローカルDB側の一意インデックスも seed.sql で外してある（本番クラウドは維持）。
+  static const bool enforceDailyLimit = kReleaseMode;
+
   /// 写真をカメラ撮影のみに限定するか（添付を禁止するか）。
   /// - 本番: true（その場で撮影）
   /// - テスト: false（カメラ／ギャラリー添付のどちらも可）
