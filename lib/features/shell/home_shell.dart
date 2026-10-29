@@ -59,26 +59,56 @@ class HomeShell extends StatelessWidget {
         destinations.indexWhere((d) => d.branch == navigationShell.currentIndex);
     if (selectedIndex < 0) selectedIndex = 0;
 
+    // 辞典テーマの茶色（本の表紙色）＋金・クリームのアクセント
+    const barBrown = Color(0xFF4A3526);
+    const lightGold = Color(0xFFE8D9A8);
+    const cream = Color(0xFFF3ECDD);
+    const creamMuted = Color(0xB3EFE6CF);
+
     return Scaffold(
       body: navigationShell,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: (index) {
-          final branch = destinations[index].branch;
-          navigationShell.goBranch(
-            branch,
-            // 同じタブを再タップしたら、そのタブの初期画面に戻す
-            initialLocation: branch == navigationShell.currentIndex,
-          );
-        },
-        destinations: [
-          for (final d in destinations)
-            NavigationDestination(
-              icon: d.icon,
-              selectedIcon: d.selectedIcon,
-              label: d.label,
+      bottomNavigationBar: NavigationBarTheme(
+        data: NavigationBarThemeData(
+          iconTheme: WidgetStateProperty.resolveWith(
+            (states) => IconThemeData(
+              color: states.contains(WidgetState.selected)
+                  ? lightGold
+                  : creamMuted,
             ),
-        ],
+          ),
+          labelTextStyle: WidgetStateProperty.resolveWith(
+            (states) => TextStyle(
+              fontSize: 12,
+              fontWeight: states.contains(WidgetState.selected)
+                  ? FontWeight.w700
+                  : FontWeight.w500,
+              color: states.contains(WidgetState.selected) ? cream : creamMuted,
+            ),
+          ),
+        ),
+        child: NavigationBar(
+          backgroundColor: barBrown,
+          indicatorColor: const Color(0x33E8D9A8),
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.black54,
+          selectedIndex: selectedIndex,
+          onDestinationSelected: (index) {
+            final branch = destinations[index].branch;
+            navigationShell.goBranch(
+              branch,
+              // 同じタブを再タップしたら、そのタブの初期画面に戻す
+              initialLocation: branch == navigationShell.currentIndex,
+            );
+          },
+          destinations: [
+            for (final d in destinations)
+              NavigationDestination(
+                icon: d.icon,
+                selectedIcon: d.selectedIcon,
+                label: d.label,
+              ),
+          ],
+        ),
       ),
     );
   }

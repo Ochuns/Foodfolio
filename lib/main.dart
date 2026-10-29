@@ -28,6 +28,20 @@ class FoodfolioApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
         useMaterial3: true,
+        // ヘッダー（AppBar）を辞典テーマの茶色に統一（フッターと同じ配色）
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF4A3526),
+          foregroundColor: Color(0xFFF3ECDD),
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 2,
+          shadowColor: Colors.black54,
+          titleTextStyle: TextStyle(
+            color: Color(0xFFF3ECDD),
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
       routerConfig: appRouter,
     );
