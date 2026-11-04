@@ -21,6 +21,8 @@ class _MapScreenState extends State<MapScreen> {
   // 羊皮紙調のテーマカラー
   static const _parchment = Color(0xFFF0E4C8);
   static const _parchmentBar = Color(0xFFEFE6CF);
+  // 地図上のボタンのアイコン色（辞典テーマの茶色）
+  static const _mapControlInk = Color(0xFF4A3526);
 
   /// タイルの彩度を 65% に落とす色マトリクス（Rec.709 輝度）。
   /// これにクリーム色の乗算を重ねて「古地図/羊皮紙」調にする。
@@ -81,11 +83,14 @@ class _MapScreenState extends State<MapScreen> {
       _error = null;
     });
     try {
-      final rows = await supabase.rpc('nearby_restaurants', params: {
-        'lat': center.latitude,
-        'lng': center.longitude,
-        'radius_m': radiusM.toInt(),
-      }) as List;
+      final rows = await supabase.rpc(
+        'nearby_restaurants',
+        params: {
+          'lat': center.latitude,
+          'lng': center.longitude,
+          'radius_m': radiusM.toInt(),
+        },
+      ) as List;
 
       if (!mounted) return;
       setState(() {
@@ -133,9 +138,9 @@ class _MapScreenState extends State<MapScreen> {
     final pos = await _getCurrentPosition();
     if (pos == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('現在地を取得できませんでした（位置情報の許可を確認してください）'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('現在地を取得できませんでした（位置情報の許可を確認してください）')),
+        );
       }
       return;
     }
@@ -199,7 +204,9 @@ class _MapScreenState extends State<MapScreen> {
               color: const Color(0xFF2E7DF6),
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 3),
-              boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+              boxShadow: const [
+                BoxShadow(color: Colors.black38, blurRadius: 4),
+              ],
             ),
           ),
         ),
@@ -212,17 +219,6 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _parchment,
-      appBar: AppBar(
-        title: const Text('辞典導入店マップ'),
-        actions: [
-          IconButton(
-            tooltip: '会津若松で探す',
-            icon: const Icon(Icons.search),
-            onPressed: _goToAizu,
-          ),
-          const AccountButton(),
-        ],
-      ),
       body: Stack(
         children: [
           FlutterMap(
@@ -241,7 +237,9 @@ class _MapScreenState extends State<MapScreen> {
                 // 彩度を落として → クリーム色を乗算し、古地図/羊皮紙調に。
                 tileBuilder: (context, tileWidget, tile) => ColorFiltered(
                   colorFilter: const ColorFilter.mode(
-                      Color(0xFFF2E8CE), BlendMode.multiply),
+                    Color(0xFFF2E8CE),
+                    BlendMode.multiply,
+                  ),
                   child: ColorFiltered(
                     colorFilter: const ColorFilter.matrix(_desaturate),
                     child: tileWidget,
@@ -250,6 +248,53 @@ class _MapScreenState extends State<MapScreen> {
               ),
               MarkerLayer(markers: _allMarkers),
             ],
+          ),
+          // 右上の検索・アカウント（ヘッダーの代わりに地図の上へ直接置く）
+          Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: _parchmentBar,
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                      color: const Color(0xFFB8860B),
+                      width: 2,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 5,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  // アカウントボタン（PopupMenuButton）のアイコン色もそろえる
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      popupMenuTheme: Theme.of(context)
+                          .popupMenuTheme
+                          .copyWith(iconColor: _mapControlInk),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: '会津若松で探す',
+                          icon: const Icon(Icons.search),
+                          color: _mapControlInk,
+                          onPressed: _goToAizu,
+                        ),
+                        const AccountButton(),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
           // 右下の方位磁石（タップで現在地へ）
           Positioned(
@@ -265,16 +310,23 @@ class _MapScreenState extends State<MapScreen> {
                   decoration: BoxDecoration(
                     color: _parchmentBar,
                     shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFFB8860B), width: 2),
+                    border: Border.all(
+                      color: const Color(0xFFB8860B),
+                      width: 2,
+                    ),
                     boxShadow: const [
                       BoxShadow(
-                          color: Colors.black26,
-                          blurRadius: 5,
-                          offset: Offset(0, 2)),
+                        color: Colors.black26,
+                        blurRadius: 5,
+                        offset: Offset(0, 2),
+                      ),
                     ],
                   ),
-                  child: const Icon(Icons.explore,
-                      color: Color(0xFFB8860B), size: 30),
+                  child: const Icon(
+                    Icons.explore,
+                    color: Color(0xFFB8860B),
+                    size: 30,
+                  ),
                 ),
               ),
             ),
@@ -284,7 +336,8 @@ class _MapScreenState extends State<MapScreen> {
             Positioned(
               left: 12,
               right: 12,
-              top: 12,
+              // 右上の検索・アカウント（高さ約 52 + 余白）と重ならない位置
+              top: MediaQuery.paddingOf(context).top + 76,
               child: Material(
                 elevation: 2,
                 borderRadius: BorderRadius.circular(8),
@@ -345,7 +398,10 @@ class _RestaurantPin extends StatelessWidget {
             color: Color(0xFFD2521E),
             shadows: [
               Shadow(
-                  color: Colors.black38, blurRadius: 4, offset: Offset(0, 2)),
+                color: Colors.black38,
+                blurRadius: 4,
+                offset: Offset(0, 2),
+              ),
             ],
           ),
           // 中央のエンブレム（金の円＋フォーク＆ナイフ）
@@ -359,8 +415,11 @@ class _RestaurantPin extends StatelessWidget {
               child: SizedBox(
                 width: 26,
                 height: 26,
-                child: Icon(Icons.restaurant,
-                    size: 15, color: Color(0xFF8A3B12)),
+                child: Icon(
+                  Icons.restaurant,
+                  size: 15,
+                  color: Color(0xFF8A3B12),
+                ),
               ),
             ),
           ),
