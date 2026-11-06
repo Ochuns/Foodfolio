@@ -378,49 +378,103 @@ class _MapScreenState extends State<MapScreen> {
   }
 }
 
-/// 辞典導入店を示すオレンジのティアドロップ型ピン。
-/// 中央に金色の円＋フォーク＆ナイフ（辞典テーマの飲食店マーク）。
+/// 辞典導入店を示す「お祭りの赤提灯（ちょうちん）」型ピン。
+/// 赤い提灯の中央に金色の「祭」。上下に黒いキャップ、下に房（ふさ）。
+/// ピンの先端（房の下端）が座標に合うよう bottomCenter で配置される。
 class _RestaurantPin extends StatelessWidget {
   const _RestaurantPin();
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
+    const cap = Color(0xFF3A2A1E); // 上下キャップの黒
+    const gold = Color(0xFFEAC45A); // 「祭」と房の金
+    const goldDim = Color(0xFFD9B24A); // 提灯の金リング
+
+    return SizedBox(
       width: 46,
       height: 54,
-      child: Stack(
-        alignment: Alignment.topCenter,
+      child: Column(
+        // 房（下端）を座標に合わせるため下寄せ
+        mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          // ティアドロップ本体（やわらかい影つき）
-          Icon(
-            Icons.location_on,
-            size: 50,
-            color: Color(0xFFD2521E),
-            shadows: [
-              Shadow(
-                color: Colors.black38,
-                blurRadius: 4,
-                offset: Offset(0, 2),
-              ),
-            ],
+          // 上キャップ
+          Container(
+            width: 20,
+            height: 5,
+            decoration: BoxDecoration(
+              color: cap,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
-          // 中央のエンブレム（金の円＋フォーク＆ナイフ）
-          Positioned(
-            top: 7,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Color(0xFFE8C87A),
-                shape: BoxShape.circle,
+          // 提灯本体（赤のグラデ＋金の「祭」＋上下の金リング）
+          Container(
+            width: 42,
+            height: 32,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFFEA3A3C), Color(0xFFC0171E)],
               ),
-              child: SizedBox(
-                width: 26,
-                height: 26,
-                child: Icon(
-                  Icons.restaurant,
-                  size: 15,
-                  color: Color(0xFF8A3B12),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF9E1319)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black38,
+                  blurRadius: 4,
+                  offset: Offset(0, 2),
                 ),
-              ),
+              ],
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: const [
+                Positioned(
+                  top: 5,
+                  left: 5,
+                  right: 5,
+                  child: SizedBox(
+                    height: 1.5,
+                    child: ColoredBox(color: goldDim),
+                  ),
+                ),
+                Positioned(
+                  bottom: 5,
+                  left: 5,
+                  right: 5,
+                  child: SizedBox(
+                    height: 1.5,
+                    child: ColoredBox(color: goldDim),
+                  ),
+                ),
+                Text(
+                  '祭',
+                  style: TextStyle(
+                    color: gold,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    height: 1.0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 下キャップ
+          Container(
+            width: 20,
+            height: 4,
+            decoration: BoxDecoration(
+              color: cap,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // 房（ふさ）
+          Container(
+            width: 2.5,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: gold,
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(2)),
             ),
           ),
         ],

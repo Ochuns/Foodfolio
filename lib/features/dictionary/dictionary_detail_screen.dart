@@ -135,7 +135,7 @@ class _DictionaryDetailScreenState extends State<DictionaryDetailScreen> {
       if (!mounted) return false;
       if (!within) {
         await _showInfoDialog('店舗の近くで作成してください',
-            'このチェキは店舗の近く（約${AppConfig.visitRadiusM}m以内）でのみ作成できます。\n実際に来店してお試しください。');
+            'このチェキは店舗の近く（約${AppConfig.visitRadiusLabel}以内）でのみ作成できます。\n実際に来店してお試しください。');
         return false;
       }
       return true;

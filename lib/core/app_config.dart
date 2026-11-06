@@ -15,13 +15,19 @@ class AppConfig {
   static const bool enforceVisitLocation = kReleaseMode;
 
   /// 来店とみなす半径（メートル）。
-  static const int visitRadiusM = 30;
+  static const int visitRadiusM = 2000;
+
+  /// 来店半径の表示用ラベル（1km以上かつ端数なしは km 表記）。
+  static String get visitRadiusLabel =>
+      visitRadiusM >= 1000 && visitRadiusM % 1000 == 0
+          ? '${visitRadiusM ~/ 1000}km'
+          : '${visitRadiusM}m';
 
   /// 「同じ店舗では1日1枚」制限を強制するか。
-  /// - 本番: true（1日1枚。当日分は再撮影）
-  /// - テスト: false（検証しやすいよう1日に何枚でも作成可）
-  /// ※ ローカルDB側の一意インデックスも seed.sql で外してある（本番クラウドは維持）。
-  static const bool enforceDailyLimit = kReleaseMode;
+  /// - お祭り運用のため全環境で false（1日に何枚でも作成可）。
+  /// ※ 本番クラウドDBの一意インデックス cards_one_per_day_per_restaurant も
+  ///   併せて DROP する必要がある（残っていると 23505 でブロックされる）。
+  static const bool enforceDailyLimit = false;
 
   /// 写真をカメラ撮影のみに限定するか（添付を禁止するか）。
   /// - 本番: true（その場で撮影）
